@@ -1,0 +1,18 @@
+shader rotate_coords
+  (
+    point In = P,
+    vector Axis = vector(0, 0, 1),
+    float Angle = 0,
+    point Origin = point(0, 0, 0),
+    output point Out = P
+  )
+  /* simpler alternative to Blender’s Vector-Mapping node
+    that only does rotation. */
+  {
+    float wq = cos(Angle / 2);
+    vector vq = sin(Angle / 2) * normalize(Axis);
+  /* [vq, wq] is now the rotation quaternion */
+    vector v1 = cross(vq, In - Origin) + wq * (In - Origin) + vq;
+    float w1 = wq - dot(In - Origin, vq);
+    Out = cross(vq, v1) + wq * v1 - w1 * vq + Origin;
+  } /*rotate_coords*/
