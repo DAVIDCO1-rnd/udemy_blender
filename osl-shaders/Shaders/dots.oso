@@ -1,0 +1,104 @@
+OpenShadingLanguage 1.00
+# Compiled by oslc 1.9.9
+# options: -o C:\Users\DAVIDC~1\AppData\Local\Temp\tmpyu13ilqr.oso -IC:\Users\David Cohn\Documents\blender-2.80-windows64\2.80\scripts\addons\cycles\shader
+shader dots
+param	point	Pos	0 0 0		%read{1,1} %write{0,0} %initexpr
+param	float	Scale	1		%read{1,1} %write{2147483647,-1}
+param	float	Radius	0.050000001		%read{18,22} %write{2147483647,-1}
+oparam	float	Fac	0		%read{2147483647,-1} %write{4,31}
+oparam	color	Col	0 0 0		%read{2147483647,-1} %write{4,31}
+global	point	P	%read{0,0} %write{2147483647,-1}
+local	point	p	%read{4,31} %write{1,1}
+local	float	x	%read{4,31} %write{3,31}
+local	float	y	%read{4,31} %write{4,31}
+local	float	___352_z	%read{4,31} %write{4,31}
+local	vector	___353_offset	%read{4,31} %write{4,31}
+local	point	___353_dotposition	%read{4,31} %write{4,31}
+local	float	___353_d	%read{4,31} %write{4,31}
+const	int	$const1	-1		%read{3,9} %write{2147483647,-1}
+const	int	$const2	1		%read{4,10} %write{2147483647,-1}
+temp	int	$tmp1	%read{2,31} %write{3,31}
+temp	int	$tmp2	%read{4,31} %write{4,31}
+temp	int	$tmp3	%read{4,31} %write{4,31}
+temp	point	$tmp4	%read{4,31} %write{4,31}
+temp	point	$tmp5	%read{4,31} %write{4,31}
+temp	vector	$tmp6	%read{4,31} %write{4,31}
+const	string	$const3	"cell"		%read{15,21} %write{2147483647,-1}
+temp	point	$tmp7	%read{4,31} %write{4,31}
+const	float	$const4	1		%read{15,31} %write{2147483647,-1}
+temp	int	$tmp8	%read{4,31} %write{4,31}
+temp	point	$tmp9	%read{4,31} %write{4,31}
+const	int	$const5	2		%read{23,24} %write{2147483647,-1}
+const	float	$const6	2		%read{21,21} %write{2147483647,-1}
+temp	float	$tmp10	%read{2147483647,-1} %write{4,31}
+temp	float	$tmp11	%read{2147483647,-1} %write{4,31}
+temp	float	$tmp12	%read{2147483647,-1} %write{4,31}
+code Pos
+# dots.osl:3
+#   float Scale = 1,
+	assign		Pos P 	%filename{"dots.osl"} %line{3} %argrw{"wr"}
+code ___main___
+# dots.osl:10
+# 
+	mul		p Pos Scale 	%filename{"dots.osl"} %line{10} %argrw{"wrr"}
+# dots.osl:13
+#     for(y=-1; y<=1; y++){
+	for		$tmp1 4 5 30 32 	%line{13} %argrw{"r"}
+	assign		x $const1 	%argrw{"wr"}
+	le		$tmp1 x $const2 	%argrw{"wrr"}
+# dots.osl:14
+#       for(float z=-1; z<=1; z++){
+	for		$tmp2 7 8 28 30 	%line{14} %argrw{"r"}
+	assign		y $const1 	%argrw{"wr"}
+	le		$tmp2 y $const2 	%argrw{"wrr"}
+# dots.osl:15
+#         vector offset=vector(x,y,z);
+	for		$tmp3 10 11 26 28 	%line{15} %argrw{"r"}
+	assign		___352_z $const1 	%argrw{"wr"}
+	le		$tmp3 ___352_z $const2 	%argrw{"wrr"}
+# dots.osl:16
+#         point dotposition = 
+	vector		___353_offset x y ___352_z 	%line{16} %argrw{"wrrr"}
+# dots.osl:18
+#           (vector)noise("cell",
+	add		$tmp5 p ___353_offset 	%line{18} %argrw{"wrr"}
+	floor		$tmp4 $tmp5 	%argrw{"wr"}
+# dots.osl:20
+#         float d = distance(p,
+	add		$tmp7 p ___353_offset 	%line{20} %argrw{"wrr"}
+	noise		$tmp6 $const3 $tmp7 $const4 	%argrw{"wrrr"}
+	add		___353_dotposition $tmp4 $tmp6 	%argrw{"wrr"}
+# dots.osl:22
+#         if( d < Radius ){
+	distance	___353_d p ___353_dotposition 	%line{22} %argrw{"wrr"}
+# dots.osl:23
+#           Col = noise("cell",p+offset,2);
+	lt		$tmp8 ___353_d Radius 	%line{23} %argrw{"wrr"}
+	if		$tmp8 26 26 	%argrw{"r"}
+# dots.osl:24
+#           Fac = Radius - d;
+	add		$tmp9 p ___353_offset 	%line{24} %argrw{"wrr"}
+	noise		Col $const3 $tmp9 $const6 	%argrw{"wrrr"}
+# dots.osl:25
+#           y=2; x=2; 
+	sub		Fac Radius ___353_d 	%line{25} %argrw{"wrr"}
+# dots.osl:26
+#           return;
+	assign		y $const5 	%line{26} %argrw{"wr"}
+	assign		x $const5 	%argrw{"wr"}
+# dots.osl:27
+#         }
+	exit	%line{27}
+# dots.osl:15
+#         vector offset=vector(x,y,z);
+	assign		$tmp10 ___352_z 	%line{15} %argrw{"wr"}
+	add		___352_z ___352_z $const4 	%argrw{"wrr"}
+# dots.osl:14
+#       for(float z=-1; z<=1; z++){
+	assign		$tmp11 y 	%line{14} %argrw{"wr"}
+	add		y y $const4 	%argrw{"wrr"}
+# dots.osl:13
+#     for(y=-1; y<=1; y++){
+	assign		$tmp12 x 	%line{13} %argrw{"wr"}
+	add		x x $const4 	%argrw{"wrr"}
+	end
