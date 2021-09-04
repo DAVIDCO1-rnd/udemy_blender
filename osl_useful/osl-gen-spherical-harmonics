@@ -1,0 +1,294 @@
+#!/usr/bin/python3
+#+
+# This script generates an Open Shading Language shader that
+# produces as its output the specified mixture of spherical
+# harmonics in the given direction. Invoke it as follows:
+#
+#     osl-gen-spherical-harmonics --name=«name» [--clamp-positive] «order»
+#
+# where «name» is the name to give to the shader, and «order»
+# is the “l” value as per this table
+# <https://en.wikipedia.org/wiki/Table_of_spherical_harmonics>.
+#
+# The resulting shader will have (2l + 1) input arguments to
+# specify the weighting of the corresponding harmonics when
+# summing to make the output. The output will consist of only
+# the real part of the sum of the harmonics, with negative
+# values clamped to zero.
+#
+# Example use: this shader could be used to module the emission
+# intensity of a point light. Instead of loading an IES light
+# definition (support for which has been added to Blender as of
+# post-2.79b), you can make up your own programmatic light
+# intensity distribution function out of an arbitrary mixture
+# of some number of spherical harmonics.
+#
+# Copyright 2018 by Lawrence D'Oliveiro <ldo@geek-central.gen.nz>.
+# Licensed under CC-BY <http://creativecommons.org/licenses/by/4.0/>.
+#-
+
+import sys
+import math
+import getopt
+
+#+
+# Spherical harmonics table
+#-
+
+harmonics_defs = \
+    (
+        ( # l = 0
+            ((1, 2, 1, 1), (1,), (1,)),
+        ),
+        ( # l = 1
+            ((1, 2, 3, 1), (1,), (0, 1)),
+            ((1, 2, 3, 2), (0, 1), (1,)),
+        ),
+        ( # l = 2
+            ((1, 4, 5, 1), (1,), (-1, 0, 3)),
+            ((1, 2, 15, 2), (0, 1), (0, 1)),
+            ((1, 4, 15, 2), (0, 0, 1), (1,)),
+        ),
+        ( # l = 3
+            ((1, 4, 7, 1), (1,), (0, -3, 0, 5)),
+            ((1, 8, 21, 1), (0, 1), (-1, 0, 5)),
+            ((1, 4, 105, 2), (0, 0, 1), (0, 1)),
+            ((1, 8, 35, 1), (0, 0, 0, 1), (1,)),
+        ),
+        ( # l = 4
+            ((3, 16, 1, 1), (1,), (3, 0, -30, 0, 35)),
+            ((3, 8, 5, 1), (0, 1), (0, -3, 0, 7)),
+            ((3, 8, 5, 2), (0, 0, 1), (-1, 0, 7)),
+            ((3, 8, 35, 1), (0, 0, 0, 1), (0, 1)),
+            ((3, 16, 35, 2), (0, 0, 0, 0, 1), (1,)),
+        ),
+        ( # l = 5
+            ((1, 16, 11, 1), (1,), (0, 15, 0, -70, 0, 63)),
+            ((1, 16, 165, 2), (0, 1), (1, 0, -14, 0, 21)),
+            ((1, 8, 1155, 2), (0, 0, 1), (0, -1, 0, 3)),
+            ((1, 32, 385, 1), (0, 0, 0, 1), (-1, 0, 9)),
+            ((3, 16, 385, 2), (0, 0, 0, 0, 1), (0, 1)),
+            ((3, 32, 77, 1), (0, 0, 0, 0, 0, 1), (1,)),
+        ),
+        ( # l = 6
+            ((1, 32, 13, 1), (1,), (-5, 0, 105, 0, -315, 0, 231)),
+            ((1, 16, 273, 2), (0, 1), (0, 5, 0, -30, 0, 33)),
+            ((1, 64, 1365, 1), (0, 0, 1), (1, 0, -18, 0, 33)),
+            ((1, 32, 1365, 1), (0, 0, 0, 1), (0, -3, 0, 11)),
+            ((3, 32, 91, 2), (0, 0, 0, 0, 1), (-1, 0, 11)),
+            ((3, 32, 1001, 1), (0, 0, 0, 0, 0, 1), (0, 1)),
+            ((1, 64, 3003, 1), (0, 0, 0, 0, 0, 0, 1), (1,)),
+        ),
+        # any point in adding more?
+    )
+
+#+
+# Mainline
+#-
+
+def amp_arg_name(m) :
+    "constructs the name to be used for the coefficient of the harmonic" \
+    " amplitude for the specified m-value."
+    return \
+        "W%s%d" % (("m", "", "p")[(m == 0) + 2 * (m > 0)], abs(m))
+#end amp_arg_name
+
+def phase_arg_name(m) :
+    "constructs the name to be used for the coefficient of the harmonic" \
+    " phase for the specified m-value."
+    return \
+        "P%s%d" % (("m", "", "p")[(m == 0) + 2 * (m > 0)], abs(m))
+#end phase_arg_name
+
+def format_number(x) :
+    return \
+        "%%.%dg" % precision % x
+#end format_number
+
+def make_term(x, power, coeff) :
+    neg = coeff < 0
+    coeff = abs(coeff)
+    if coeff != 0 :
+        if coeff != 1 :
+            format_coeff = format_number(coeff) + " * "
+        elif power == 0 :
+            format_coeff = "1"
+        else :
+            format_coeff = ""
+        #end if
+        if power != 0 :
+            term = format_coeff + " * ".join([x] * power)
+        else :
+            term = format_coeff
+        #end if
+    else :
+        term = ""
+    #end if
+    return \
+        (neg, term)
+#end make_term
+
+opts, args = getopt.getopt \
+  (
+    sys.argv[1:],
+    "",
+    ["clamp-positive", "name=", "precision="]
+  )
+shader_name = None
+clamp_positive = False
+precision = 7
+for keyword, value in opts :
+    if keyword == "--clamp-positive" :
+        clamp_positive = True
+    elif keyword == "--name" :
+        shader_name = value
+    elif keyword == "--precision" :
+        try :
+            precision = int(value)
+        except ValueError :
+            precision = -1
+        #end try
+        if precision < 0 :
+            raise getopt.GetoptError("bad --precision value")
+        #end if
+    #end if
+#end for
+if shader_name == None :
+    raise getopt.GetoptError("missing --name")
+#end if
+if len(args) != 1 :
+    raise getopt.GetoptError("need exactly one arg, the «order»")
+#end if
+order = int(args[0])
+if order < 0 :
+    raise getopt.GetoptError("order must not be negative")
+#end if
+if order >= len(harmonics_defs) :
+    raise getopt.GetoptError \
+      (
+        "--order value too large, cannot handle more than %d" % (len(harmonics_defs) - 1)
+      )
+#end if
+
+terms = []
+for m, (coeff_parts, sinpoly, cospoly) in enumerate(harmonics_defs[order]) :
+    for negate_m in ((False,), (False, True))[m != 0] :
+        negate_coeff = not negate_m and m & 1 != 0
+        factors = [amp_arg_name(m * (1, -1)[negate_m])]
+        factors.append \
+          (
+            format_number
+              (
+                    (coeff_parts[0] * (1, -1)[negate_coeff] / coeff_parts[1])
+                *
+                    math.sqrt(coeff_parts[2] / (coeff_parts[3] * math.pi))
+              )
+          )
+        if m != 0 :
+            factor = \
+                (
+                        "(cos(%(phase)s) * cos(%%(x)sphi)"
+                        " - sin(%(phase)s) * sin(%%(x)sphi))"
+                    %
+                        {"phase" : "%s * 2 * M_PI" % phase_arg_name(m * (1, -1)[negate_m])}
+                )
+            factors.append \
+              (
+                factor % {"x" : (lambda : "", lambda : format_number(m) + " * ")[m != 1]()}
+              )
+        #end if
+        for poly, var in \
+            (
+                (sinpoly, "sin_theta"),
+                (cospoly, "cos_theta"),
+            ) \
+        :
+            if poly != (1,) :
+                subterms = []
+                for i in range(len(poly)) :
+                    subterm = make_term(var, i, poly[i])
+                    if len(subterm[1]) != 0 :
+                        subterms.append(subterm)
+                    #end if
+                #end for
+                if len(subterms) > 1 or subterms[0][0] :
+                    lparen = "("
+                    rparen = ")"
+                else :
+                    lparen = rparen = ""
+                #end if
+                if len(subterms) > 1 :
+                    subterms = " ".join \
+                      (
+                        ("+ ", "- ")[s[0]] + s[1]
+                        for s in subterms
+                      )
+                else :
+                    subterms = ("", "- ")[subterms[0][0]] + subterms[0][1]
+                #end if
+                factors.append(lparen + "".join(subterms) + rparen)
+            #end if
+        #end for
+        if len(terms) != 0 :
+            if len(terms) == 1 :
+                terms[0] = "    " + terms[0]
+            #end if
+            terms.append("        +")
+            extra_indent = "    "
+        else :
+            extra_indent = ""
+        #end if
+        terms.append("        " + extra_indent + " * ".join(factors))
+    #end for
+#end for
+weight_defs = []
+for m in range(- order, order + 1) :
+    weight_defs.append("    float %s = 0," % amp_arg_name(m))
+    if m != 0 :
+        weight_defs.append("    float %s = 0," % phase_arg_name(m))
+    #end if
+#end for
+if clamp_positive :
+    result_expr = \
+        (
+            "        max\n"
+            "          (\n"
+        +
+            "\n".join
+              (
+                "    " + line for line in terms
+              )
+        +
+            ",\n            0\n"
+            "          )"
+        )
+else :
+    result_expr = "\n".join(terms)
+#end if
+
+sys.stdout.write \
+  (
+        "shader %(name)s\n"
+        "  (\n"
+        "%(weight_defs)s\n"
+        "    normal Direction = transform(\"world\", \"object\", N),\n"
+          # N is in world coords, transform back to object to allow object transform to apply
+        "    output float Result = 1\n"
+        "  )\n"
+        "  /* generated by osl-gen-spherical-harmonics. */\n"
+        "  {\n"
+        "    float len_xy = hypot(Direction[1], Direction[0]);\n"
+        "    float len_xyz = hypot(Direction[2], len_xy);\n"
+        "    float sin_theta = len_xy / len_xyz;\n"
+        "    float cos_theta = Direction[2] / len_xyz;\n"
+        "    float phi = atan2(Direction[1], Direction[0]);\n"
+        "    Result =\n"
+        "%(result)s;\n"
+        "  } /*%(name)s*/\n"
+    %
+        {
+            "name" : shader_name,
+            "weight_defs" : "\n".join(weight_defs),
+            "result" : result_expr,
+        }
+  )
